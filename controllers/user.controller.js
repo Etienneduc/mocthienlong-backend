@@ -4,7 +4,7 @@ import bcryptjs from "bcryptjs";
 import jwt from "jsonwebtoken";
 // import { sendEmail } from "../config/emailService.js"; // ❌ không dùng trực tiếp
 import VerificationEmail from "../utils/verifyEmailTemplate.js";
-import sendEmailFun from "../config/sendEmail.js";
+import sendEmailFun from "../config/sendEmailFun.js";
 import generatedAccessToken from "../utils/generatedAccessToken.js";
 import generatedRefreshToken from "../utils/generatedRefreshToken.js";
 
@@ -12,9 +12,9 @@ import { v2 as cloudinary } from "cloudinary";
 import fs from "fs";
 
 cloudinary.config({
-  cloud_name: process.env.cloudinary_Config_Cloud_Name,
-  api_key: process.env.cloudinary_Config_api_key,
-  api_secret: process.env.cloudinary_Config_api_secret,
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
   secure: true,
 });
 
@@ -66,7 +66,6 @@ export async function registerUserController(req, res) {
     await sendEmailFun({
       to: email,
       subject: "Verify your email - Mộc Thiên Long",
-      text: "",
       html: VerificationEmail(name, otp),
     });
 
@@ -249,7 +248,6 @@ export async function resendOtpController(req, res) {
     await sendEmailFun({
       to: email,
       subject: "Your new OTP - Mộc Thiên Long",
-      text: "",
       html: VerificationEmail(user.name, newOTP),
     });
 
@@ -416,7 +414,11 @@ export async function userAvatarController(req, res) {
     });
 
     // 3. Xoá file local
-    fs.unlinkSync(files[0].path);
+    try {
+      fs.unlinkSync(files[0].path);
+    } catch (err) {
+      console.warn("⚠️ Could not delete local file:", err.message);
+    }
 
     // 4. Update DB
     user.avatar = uploadResult.secure_url;
@@ -625,7 +627,6 @@ export async function forgotPasswordController(req, res) {
     await sendEmailFun({
       to: email,
       subject: "Reset your password - Mộc Thiên Long",
-      text: "",
       html: VerificationEmail(user.name, verifyCode),
     });
 
@@ -828,6 +829,7 @@ export async function resetPassword(req, res) {
 // ========================== REFRESH TOKEN ==========================
 export async function refreshToken(req, res) {
   try {
+    // 1. Lấy token từ cookie hoặc header Authorization
     const token =
       req.cookies?.refreshToken ||
       (req.headers?.authorization?.startsWith("Bearer ")
@@ -836,53 +838,69 @@ export async function refreshToken(req, res) {
 
     if (!token) {
       return res.status(401).json({
-        message: "No refresh token provided",
+        message: "Refresh token missing",
         error: true,
         success: false,
       });
     }
 
+    // 2. Verify refresh token
     let decoded;
     try {
-      decoded = jwt.verify(token, process.env.SECRET_KEY_REFRESH_TOKEN);
+      decoded = jwt.verify(token, process.env.SECRET_KEY_REFRESH_TOKEN, {
+        clockTolerance: 10,
+      });
     } catch (err) {
       return res.status(403).json({
-        message: "Invalid or expired refresh token",
+        message: "Refresh token expired or invalid",
         error: true,
         success: false,
       });
     }
 
+    // 3. Kiểm tra trong DB (tránh token bị đánh cắp)
     const user = await UserModel.findById(decoded.id);
     if (!user || user.refresh_token !== token) {
       return res.status(403).json({
-        message: "Refresh token does not match",
+        message: "Refresh token mismatch",
         error: true,
         success: false,
       });
     }
 
+    // 4. Tạo token mới
     const newAccessToken = await generatedAccessToken(user);
     const newRefreshToken = await generatedRefreshToken(user);
 
+    // 5. Lưu refresh token mới vào DB
     user.refresh_token = newRefreshToken;
     await user.save();
 
-    // Set cookie
-    res.cookie("accessToken", newAccessToken, res.cookieSettings);
-    res.cookie("refreshToken", newRefreshToken, res.cookieSettings);
+    // 6. Set cookie chuẩn Render (HTTPS)
+    res.cookie("accessToken", newAccessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      path: "/",
+    });
+
+    res.cookie("refreshToken", newRefreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      path: "/",
+    });
 
     return res.json({
-      message: "New access token generated",
+      message: "New tokens generated",
       success: true,
-      error: false,
       accessToken: newAccessToken,
       refreshToken: newRefreshToken,
     });
   } catch (error) {
     console.error("Refresh token error:", error);
     return res.status(500).json({
-      message: "Internal server error",
+      message: "Internal Server Error",
       error: true,
       success: false,
     });
