@@ -6,7 +6,7 @@ import {
   getMyListController,
   getMyListCountController,
   checkMyListItemController,
-} from "../controllers/myList.controller.js";
+} from "../controllers/mylist.controller.js";
 
 const myListRouter = Router();
 
