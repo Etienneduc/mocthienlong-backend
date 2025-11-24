@@ -2,14 +2,18 @@ import nodemailer from "nodemailer";
 
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
-  port: 587, // đổi 465 -> 587
-  secure: false, // phải là false khi dùng 587
+  port: 587, // Gmail STARTTLS port
+  secure: false, // 🔥 quan trọng: phải false với port 587
   auth: {
     user: process.env.MAIL_USER,
     pass: process.env.MAIL_PASS,
   },
+  tls: {
+    rejectUnauthorized: false, // 🔥 tránh lỗi SSL trên Render
+  },
 });
 
+// Kiểm tra SMTP kết nối
 transporter.verify((error, success) => {
   if (error) {
     console.error("❌ Email connection failed:", error.message);
@@ -24,6 +28,7 @@ export async function sendEmail(to, subject, text, html) {
       from: `"Mộc Thiên Long" <${process.env.MAIL_USER}>`,
       to,
       subject,
+      text,
       html,
     });
 
