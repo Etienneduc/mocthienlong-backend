@@ -2,13 +2,12 @@ import nodemailer from "nodemailer";
 
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
-  port: 465,
-  secure: true, // Gmail bắt buộc SSL
+  port: 587, // đổi 465 -> 587
+  secure: false, // phải là false khi dùng 587
   auth: {
     user: process.env.MAIL_USER,
     pass: process.env.MAIL_PASS,
   },
-  timeout: 20000, // 20s chống timeout trên Render
 });
 
 transporter.verify((error, success) => {
